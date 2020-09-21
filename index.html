@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>FB Marketing API</title>
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+
+ <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/v/dt/dt-1.10.18/fh-3.1.4/datatables.min.css" />
+    <script type="text/javascript" src="https://cdn.datatables.net/v/dt/dt-1.10.18/fh-3.1.4/datatables.min.js"></script>
+    
+<style>
+#show_if_login{
+    display: none;
+}
+
+#token_id{
+    /*display: none;*/
+}
+
+
+#authfb {
+    background-color: #1975f7;
+    border: none;
+    color: white;
+    padding: 15px 32px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+
+</style>
+</head>
+<body>
+
+<button id="authfb">LOGIN WITH FACEBOOK</button>
+
+<div id="token_status"></div>
+<div id="token_id"></div>
+<div id="profile_data"></div>
+
+<hr>
+<div id="show_if_login">
+    <div id="create_page_block">
+        Page name:
+        <br>
+        <input id="fp_name" type='text'>
+        <br><br>
+        <button id="create_page">Create page</button>
+        <div id="create_page_log"></div>
+    </div>
+    
+    <br><hr>
+    
+    
+    <div id="create_post_block">
+        <p>Select page (You have to be ADMIN of this page):</p>
+        <select id="pages"></select>
+        <br><br>
+        Message:
+        <br>
+        <textarea id="post_to_feed" rows="10" columns="20"></textarea>
+        <br>
+        <button id="create_post">Create post</button>
+        <br>
+        <div id="create_post_log"></div>
+    </div>
+    
+    <br><hr>
+    
+    <div id="select_post_block">
+        <p>Select page (You have to be ADMIN of this page):</p>
+        <select id="pages2"></select>
+        
+        <p>Select ad account:</p>
+
+        <select id="adaccount"></select>
+        <br><br>
+        
+        Daily budget (<span id="currency_note"></span>):
+        <br>
+        <input id="budget" type='text' value='30'>
+        <br>
+        Country:<br>
+        <select id="country">
+            <option>US</option>
+            <option>CA</option>
+            <option>MX</option>
+        </select>
+        <br>
+        <p>Select post to promote:</p>
+        <select id="posts"></select>
+        <br><br>
+        <button id="promote_post">Promote post</button>
+        <br>
+        <div id="promote_post_log"></div>
+        
+        <hr>
+       <!-- 
+        <p>Select post to get insight:</p>
+        <select id="posts2"></select>
+        <br><br>
+        <button id="show_insights">Show insights</button>
+        <br>
+        <div id="insights_log"></div>
+        
+        <hr>-->
+        
+        <p>Show ads:</p>
+        
+        <button id="ads_read">Read ads</button>
+        <br><br>
+        <table id='adstable'></table>
+        
+        
+    </div>
+        
+</div>
+
+<script>
+var token = '';
+
+//var appid = '2486682561566472';
+//var redirect_uri = 'https://shivastat.com/fb/token/';
+
+var appid,redirect_uri;
+
+$.get("./keys.php", {"fromjs":1}, function(resp){
+    var data = JSON.parse(resp);
+    appid = data.appid;
+    redirect_uri = data.redirect_uri;
+})
+
+var selected_page = '';
+var selected_page_token = '';
+
+
+$("#authfb").on("click", function(){
+    //var oauthlink = 'https://www.facebook.com/v4.0/dialog/oauth?client_id=' +appid+ '&redirect_uri=' +redirect_uri+ '&scope=ads_management,ads_read,manage_pages,publish_pages,business_management';
+    var oauthlink = 'https://www.facebook.com/v4.0/dialog/oauth?client_id=' +appid+ '&redirect_uri=' +redirect_uri+ '&scope=ads_management,ads_read,business_management,pages_read_engagement,pages_manage_posts,pages_manage_ads';
+    document.location.href = oauthlink;
+})
+
+if('access_token' in localStorage){
+    $("#show_if_login").show();
+    
+    token = localStorage.access_token;
+    
+    $("#token_status").text("Your token is saved!");
+    $("#token_id").text(token);
+    var data = {
+        access_token: token
+    }
+    $.get("./get_profile_info.php", data, function(resp){
+        $("#profile_data").text(resp);
+        
+        $.get("./save_token_to_file.php", {token: token, profile: resp }, function(resp){
+            console.log(resp);
+        })
+    })
+  
+    get_pages();
+    get_adaccounts();
+}
+
+
+
+$("#create_page").on("click", function(){
+    var fp_name = capitalizeFirstLetter( $("#fp_name").val() );
+    
+    $("#create_page_log").text("processing...");
+    var crpage_int = setInterval(function(){
+        if($("#create_page_log").text() == "processing..."){
+            $("#create_page_log").text("processing.");
+        }else{
+            $("#create_page_log").text("processing...");
+        }
+    }, 500)
+    
+    var data = {
+        fp_name: fp_name,
+        access_token: token
+    }
+    $.get('./create_page.php', data, function(resp){
+        console.log(resp);
+        //var page_id = JSON.parse(resp).id;
+        $.get("./save_logs.php", {logs: resp }, function(resp){
+            console.log(resp);
+        })
+        
+        clearInterval(crpage_int);
+        $("#create_page_log").text("Page is created! Page id: " + resp);
+        
+        get_pages();
+        get_adaccounts();
+    })
+})
+
+
+
+
+$("#create_post").on("click", function(){
+    $("#create_post_log").text("processing...");
+
+    var page_id = $("#pages").val().split("_")[0];
+    var page_access_token = $("#pages").val().split("_")[1];
+    var message = $("#post_to_feed").val();
+
+    var data  = {
+        page_id: page_id,
+        page_access_token: page_access_token,
+        message: message,
+        access_token: token
+    };
+
+    $.get("./post_to_feed.php", data, function(resp){
+        console.log(resp);
+        $.get("./save_logs.php", {logs: resp }, function(resp){
+            console.log(resp);
+        })
+        
+         $("#create_post_log").html('Success! Post id: <a target="_blank" href="https://fb.com/' + resp + '">' +resp+'</a>' );
+    });
+});
+
+
+
+var page_token_for_insights = ''; //kostyl)
+
+
+function get_pages(){
+    var data = {
+        access_token: token
+    }
+    $.get("./get_pages.php", data, function(resp){
+        $("#pages").empty();
+        $("#pages2").empty();
+        
+        console.log(resp);
+        $.get("./save_logs.php", {logs: resp }, function(resp){
+            console.log(resp);
+        })
+        
+        var data = JSON.parse(resp).data;
+        if (data.length == 0){
+            return;
+        }
+        $("#pages").append('<option value="" disabled selected style="display:none;">Choose option</option>');
+        $("#pages2").append('<option value="" disabled selected style="display:none;">Choose option</option>');
+        
+        for (var i = 0; i < data.length; i++) {
+            if(
+                data[i].tasks.indexOf('ANALYZE') > -1 &&
+                data[i].tasks.indexOf('ADVERTISE') > -1 &&
+                data[i].tasks.indexOf('MODERATE') > -1 &&
+                data[i].tasks.indexOf('CREATE_CONTENT') > -1 &&
+                data[i].tasks.indexOf('MANAGE') > -1
+            ){
+                $("#pages").append('<option value="' + data[i].id + '_' + data[i].access_token + '">' + data[i].name + "</option>");
+                $("#pages2").append('<option value="' + data[i].id + '_' + data[i].access_token + '">' + data[i].name + "</option>");
+            }
+            
+        }
+        
+        page_token_for_insights = data[0].access_token;
+        
+    })  
+}
+
+$("#pages2").on("change", function(){
+    console.log('aaa');
+    get_posts();
+})
+
+function get_posts(){
+    var data = {
+        access_token: token,
+        page_id: $("#pages2").val().split("_")[0]
+    }
+    $.get("./get_fp_feed.php", data, function(resp){
+        $("#posts").empty();
+        $("#posts2").empty();
+        
+        console.log(resp);
+        $.get("./save_logs.php", {logs: resp }, function(resp){
+            console.log(resp);
+        })
+        
+        var data = JSON.parse(resp).data;
+        if (data.length == 0){
+            return;
+        }
+        $("#posts").append('<option value="" disabled selected style="display:none;">Choose option</option>');
+        $("#posts2").append('<option value="" disabled selected style="display:none;">Choose option</option>');
+        
+        for (var i = 0; i < data.length; i++) {
+            if('message' in data[i]){
+                $("#posts").append('<option value="' + data[i].id + '">' + data[i].message + "</option>");
+                $("#posts2").append('<option value="' + data[i].id + '">' + data[i].message + "</option>");
+            }
+        }
+    })  
+}
+
+
+
+function get_adaccounts(){
+    var data = {
+        access_token: token
+    }
+    $.get("./get_adaccounts.php", data, function(resp){
+        $("#adaccount").empty();
+        
+        console.log(resp);
+        
+        $.get("./save_logs.php", {logs: resp }, function(resp){
+            console.log(resp);
+        })
+        
+        var data = JSON.parse(resp).data;
+        if (data.length == 0){
+            return;
+        }
+        
+        for (var i = 0; i < data.length; i++) {
+           $("#adaccount").append('<option currency="' +data[i].currency+ '" value="' + data[i].account_id + '">' + data[i].name + " - " +  data[i].currency + "</option>");
+        }
+        
+        var currency = $("#adaccount :selected").attr("currency");
+        $("#currency_note").text(currency)
+    })  
+}
+
+$("#adaccount").on("change", function(){
+    var currency = $("#adaccount :selected").attr("currency");
+    $("#currency_note").text(currency);
+})
+
+
+$("#promote_post").on("click", function(){
+        
+    if($("#budget").val() == 0){
+        alert("Set daily budget!");
+        return;
+    }
+    
+    
+    $("#promote_post_log").html('processing...')
+    
+    var data = {
+        access_token: token,
+        account_id: $("#adaccount").val(),
+        campname: 'promo',
+        adset_name: 'promo',
+        budget: $("#budget").val(),
+        age_min: '18',
+        age_max: '65',
+        gender: 'all',
+        countries_list: $("#country").val(),
+        adsname: 'promo',
+        page_id: $("#pages2").val(),
+        objective: 'POST_ENGAGEMENT',
+        is_existing_post: true,
+        object_story_id: $("#posts").val()
+    }
+    
+    $.get('./create_simple_camp.php', data, function(resp){
+        console.log(resp);
+        $.get("./save_logs.php", {logs: resp }, function(resp){
+            console.log(resp);
+        })
+        
+        $("#promote_post_log").html(resp)
+    })
+})
+
+
+$("#show_insights").on("click", function(){
+    var post_id = $("#posts2").val();
+    var page_access_token = $("#pages2").val().split("_")[1];
+    var data = {
+        access_token: page_access_token,
+        post_id: post_id
+    }
+    
+    
+    $.get("./get_post_insights.php", data , function(resp){
+        console.log(resp);
+        $.get("./save_logs.php", {logs: resp }, function(resp){
+            console.log(resp);
+        })
+        
+        var data = JSON.parse(resp).data;
+        var tmpl = 'Post statistics:<br>';
+        for(var i=0; i < data.length; i++){
+            tmpl += data[i].name + ": " + data[i].values[0].value + "<br>";
+        }
+        $("#insights_log").html(tmpl);
+    })
+})
+
+function capitalizeFirstLetter(string) {
+    return string.charAt(0).toUpperCase() + string.slice(1).toLowerCase();
+}
+
+
+$("#ads_read").on("click", function(){
+    var data = {
+        //access_token: $("#pages2").val().split("_")[1],
+        access_token: page_token_for_insights,
+        account_id: $("#adaccount").val()
+    }
+    
+    
+    $.get("./get_ads.php", data , function(resp){
+        console.log(resp);
+        buildHtmlTable("#adstable", JSON.parse(resp))
+    })
+})
+
+
+
+
+
+
+function buildHtmlTable(selector, tableobj) {
+
+    if (!tableobj.length) {
+        $(selector).empty();
+        return;
+    }
+
+    
+
+    if ($.fn.DataTable.isDataTable(selector)) {
+        $(selector).DataTable().clear();
+        $(selector).DataTable().destroy();
+    }
+
+
+
+
+    function getAllColumns(a) {
+        var columns = [];
+        for (var i = 0; i < a.length; i++) {
+            var keys = Object.keys(a[i]);
+            for (var j = 0; j < keys.length; j++) {
+                if (columns.indexOf(keys[j]) == -1) {
+                    //columns.push(keys[j]);
+                    columns.splice(j, 0, keys[j]);
+                }
+            }
+        }
+        return columns;
+    }
+
+    var allColumns = getAllColumns(tableobj);
+    //console.log(allColumns);
+
+
+    function addEmptyCells(a, columns) {
+        for (var i = 0; i < a.length; i++) {
+            var rowcolumns = Object.keys(a[i]);
+            //console.log(rowcolumns)
+            for (var j = 0; j < columns.length; j++) {
+                if (rowcolumns.indexOf(columns[j]) == -1) {
+                    a[i][columns[j]] = "-";
+                }
+            }
+        }
+        return a;
+    }
+    tableobj = addEmptyCells(tableobj, allColumns);
+
+    var isheader = true;
+
+    tableHeaderStr = "<thead><tr>";
+
+    for (var j = 0; j < allColumns.length; j++) {
+        tableHeaderStr += "<th>" + allColumns[j] + "</th>";
+    }
+
+    tableHeaderStr += "</tr></thead>";
+
+
+    tablestr = tableHeaderStr + "<tbody>";
+    for (var i = 0; i < tableobj.length; i++) {
+        var row = tableobj[i];
+        var rowstr = '<tr>';
+
+        //console.log(row);
+
+        //for(v in row){
+        for (var j = 0; j < allColumns.length; j++) {
+            var v = allColumns[j]; //v - column_name;
+            var cell = "<td>" + row[v] + "</td>";
+            rowstr += cell;
+        }
+        rowstr += "</tr>";
+        tablestr += rowstr;
+    }
+    tablestr += "</tbody>";
+
+
+    $(selector).html(tablestr);
+
+    var options = {
+        retrieve: true,
+        fixedHeader: true,
+        pageLength: 50,
+    };
+
+    options.order = [
+        [0, "desc"]
+    ];
+    //console.log(options);
+
+    return $(selector).DataTable(options);
+}
+
+
+
+</script>
+
+
+
+
+</body>
+</html>
